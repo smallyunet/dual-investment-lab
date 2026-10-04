@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fetchLive,getJSON} from '../lib/api.js';
+import {fetchLive,fetchSpot,fetchProducts,getJSON} from '../lib/api.js';
 
-test('public collection requests correct Buy Low parameters and all pages',async()=>{
+test('direct API requests correct Buy Low parameters and all pages',async()=>{
   const previous=globalThis.fetch;const calls=[];
   globalThis.fetch=async(url,options)=>{
     calls.push({url,options});
@@ -36,4 +36,15 @@ test('unexpected response structure is rejected',async()=>{
   const previous=globalThis.fetch;
   globalThis.fetch=async url=>url.includes('/ticker/')?Response.json({price:'84800'}):Response.json({unexpected:true});
   try{await assert.rejects(fetchLive(),/format/);}finally{globalThis.fetch=previous;}
+});
+
+test('spot succeeds independently when Dual Investment access fails',async()=>{
+  const previous=globalThis.fetch;
+  globalThis.fetch=async url=>url.includes('/ticker/')?Response.json({price:'90000'}):new Response('{}',{status:451});
+  try{assert.equal((await fetchSpot()).spot,90000);await assert.rejects(fetchProducts(),/HTTP 451/);}finally{globalThis.fetch=previous;}
+});
+test('invalid spot is rejected and empty product response is valid',async()=>{
+  const previous=globalThis.fetch;
+  globalThis.fetch=async url=>url.includes('/ticker/')?Response.json({price:'NaN'}):Response.json({total:0,list:[]});
+  try{await assert.rejects(fetchSpot(),/spot response format/);assert.deepEqual((await fetchProducts()).products,[]);}finally{globalThis.fetch=previous;}
 });

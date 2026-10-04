@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {DAY,normalizeProducts,paretoFrontier,rankProducts,detectKnee,marginalAnalysis,validateSnapshot} from '../lib/analysis.js';
-import {demoSnapshot} from '../lib/demo.js';
+// User-provided historical observations. Dates are synthetic relative dates for visualization only.
+function fixtureSnapshot() {
+  const observedAt=new Date().toISOString();
+  const base=new Date(observedAt).getTime();
+  const targets=[84500,84000,83500,83000,82500,82000,81500,81000];
+  const grid={3:[68.13,48.48,32.80,24.08,16.87,11.61,8.52,6.16],4:[60.83,45.25,32.49,24.77,18.28,13.30,10,7.43],5:[63.98,49.10,37.88,28.65,21.95,16.62,12.75,9.64],9:[47.62,39.57,32.44,26.28,20.95,17.20,14.12,11.43]};
+  const products=[];
+  function add(target,days,apr){products.push({id:`demo-${target}-${days}`,strikePrice:String(target),duration:days,settleDate:base+days*DAY,apr:String(apr/100),optionType:'PUT',investCoin:'USDT',exercisedCoin:'BTC',canPurchase:true});}
+  for(const [days,aprs] of Object.entries(grid)) targets.forEach((target,i)=>add(target,Number(days),aprs[i]));
+  add(83000,12,29.44);add(83000,19,27.17);
+  return {version:1,source:'demo',observedAt,spot:84800,products};
+}
+
 const now='2026-10-04T00:00:00Z';
 const quote=(overrides={})=>({id:'a',strikePrice:'83000',duration:5,settleDate:new Date(now).getTime()+5*DAY,apr:'0.2865',optionType:'PUT',investCoin:'USDT',exercisedCoin:'BTC',canPurchase:true,...overrides});
 test('known quote: APR decimal, actual period return, conversion cost',()=>{
@@ -30,7 +42,7 @@ test('ranking is finite for single and tied candidates and never escapes prefere
   const rows=normalizeProducts([quote()],84800,now),pref={minDiscount:2,maxDiscount:3,minDays:3,maxDays:7,minApr:20};
   assert.equal(rankProducts(rows,pref).ranked[0].score,100);
   assert.equal(rankProducts(rows,{...pref,minApr:50}).ranked.length,0);
-  const demo=demoSnapshot(),all=normalizeProducts(demo.products,demo.spot,demo.observedAt),result=rankProducts(all,pref);
+  const demo=fixtureSnapshot(),all=normalizeProducts(demo.products,demo.spot,demo.observedAt),result=rankProducts(all,pref);
   assert.equal(result.eligible.length,4);assert.ok(result.ranked.every(p=>p.discount>=.02&&p.discount<=.03&&p.apr>=.2));
 });
 test('knee detector rejects straight lines and detects diminishing returns',()=>{
@@ -39,7 +51,7 @@ test('knee detector rejects straight lines and detects diminishing returns',()=>
   assert.equal(detectKnee([{x:0,y:0},{x:1,y:0}],'x','y'),null);
 });
 test('19 day quote provides less marginal daily return than extending to 12 days',()=>{
-  const d=demoSnapshot(),rows=normalizeProducts(d.products,d.spot,d.observedAt),time=marginalAnalysis(rows).time.filter(p=>p.target===83000);
+  const d=fixtureSnapshot(),rows=normalizeProducts(d.products,d.spot,d.observedAt),time=marginalAnalysis(rows).time.filter(p=>p.target===83000);
   const first=time.find(p=>p.from===9&&p.to===12),last=time.find(p=>p.from===12&&p.to===19);
   assert.ok(last.perDay<first.perDay);
   assert.ok(Math.abs(last.perDay-((.2717*19-.2944*12)/365/7))<1e-12);

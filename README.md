@@ -1,71 +1,39 @@
 # Dual Investment Lab
 
-Responsive, dependency-free BTC/USDT Buy Low analysis on GitHub Pages.
+A responsive, dependency-free BTC/USDT Buy Low analysis page.
 
-**Website (after Pages is enabled):** https://smallyunet.github.io/dual-investment-lab/
+Website: https://smallyunet.github.io/dual-investment-lab/
 
-## Run locally
+## Data flow
 
-Node.js 24 and Python 3 are sufficient. No package installation is required.
+Opening the page makes two independent requests directly from the browser:
 
-```sh
-npm test
-npm run dev
-```
+- BTC spot: `GET https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT`
+- Buy Low products: `GET https://api.binance.com/sapi/v1/dci/product/list?optionType=PUT&exercisedCoin=BTC&investCoin=USDT&pageSize=100&pageIndex=1`
 
-Open http://localhost:4173. The UI is English and supports desktop and mobile.
+Product pagination continues until all results have been fetched, with a 10,000-record safety limit. Partial pagination is never used for analysis. Requests bypass the HTTP cache. Use **Fetch live quotes** to request fresh data again; there is no polling, background collection or schedule.
 
-## Data and authentication
+The page contains no historical market data, saved market snapshots, uploaded-data path or demo fallback. It stores only user preferences in local storage. Each refresh clears the previous market response. If a request fails, the page displays an error and leaves the affected values unavailable. Spot is shown independently when its request succeeds; analysis requires both spot and a complete product response. An empty successful product list is shown as an empty result.
 
-The browser requests the official public endpoints:
+The current [Binance reference](https://developers.binance.com/en/docs/catalog/investment-and-services-dual-investment/api/rest-api/market-data) describes the product-list request without signing, with IP weight 1 and page size up to 100. Browser access still depends on Binance CORS, network, geographic restrictions and API policy. The page never asks for Binance credentials. Direct browser access has previously failed in our verification environment; deployment success does not establish live API availability.
 
-- `GET https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT`
-- `GET https://api.binance.com/sapi/v1/dci/product/list?optionType=PUT&exercisedCoin=BTC&investCoin=USDT&pageSize=100&pageIndex=1`
-
-As checked on 2026-10-04, the current [Binance reference](https://developers.binance.com/en/docs/catalog/investment-and-services-dual-investment/api/rest-api/market-data), its linked OpenAPI schema, and official Python SDK describe the list endpoint without signing. The current general security documentation defines unspecified security as `NONE`. An older official GitHub Swagger still labels this endpoint `USER_DATA`; this inconsistency is documented rather than silently assuming authenticated access works. This application implements the current public contract and never requests or stores Binance credentials.
-
-IP weight: 1 per product-list request; page size up to 100. All pages are collected, with a 10,000-record safety limit. Spot and product requests are not atomic.
-
-GitHub Actions attempts collection every 30 minutes and deploys the static site. Scheduled actions may be delayed. A successful response is saved to `data/latest.json`; a failed request updates `data/status.json` while preserving the last successful snapshot. Browsers first load the snapshot, then try to refresh directly. Regional restrictions (HTTP 451), CORS, or API policy can prevent either path. Never bypass these restrictions. The original cloud environment returned HTTP 451, so live availability was not established there.
-
-Fallbacks are labelled explicitly:
-
-- Official live response / official snapshot, with observation timestamp.
-- Stale snapshot after 60 minutes, labelled as past analysis.
-- User-imported JSON, whose source is unverified.
-- Historical demo quotes supplied by the user. The spot is 84,800 USDT; settlement dates are synthetic relative dates for charting. These are not live products. There is no invented 12-day or 19-day grid: only the provided 83,000 quotes are included for those terms.
+GitHub Actions only tests and deploys the static files on pushes to `main` or manual dispatch. It does not contact Binance, store quotes or run on a schedule.
 
 ## Analysis
 
-APR is a decimal (`0.2865` means 28.65%). Period return uses `apr * duration / 365`, using the official quoted interest duration rather than substituting wall-clock time to settlement. Both are shown. Effective entry is `strikePrice / (1 + periodReturn)`, an approximation conditional on conversion, not a loss guarantee.
+APR is a decimal (`0.2865` means 28.65%). Period return uses `apr * duration / 365`, using the API interest duration. Time to settlement is shown separately. Effective entry is `strikePrice / (1 + periodReturn)`, conditional on conversion.
 
-Initial adjustable preferences: 2–3% discount, 3–7 day interest terms, APR ≥20%. Among eligible quotes, remove Pareto-dominated products using discount, period return and duration. Rank the frontier by Euclidean distance to the normalized ideal (highest discount, highest period return, shortest duration), with equal treatment of dimensions. Score is `100 * (1 - distance / sqrt(3))`. Constant dimensions contribute zero. This is explicit preference-based ranking, not a uniquely optimal financial recommendation.
+Adjustable initial preferences: 2–3% discount, 3–7 day interest terms, APR ≥20%. The page removes Pareto-dominated quotes using discount, period return and duration. It ranks the remaining candidates by Euclidean distance to the normalized ideal: highest discount, highest period return, shortest term. Score: `100 * (1 - distance / sqrt(3))`; constant dimensions contribute zero. Preferences are not market data or a claim of optimality.
 
-Knees use maximum positive distance above the normalized endpoint chord, at least three points, and strength greater than 0.03. Linear and convex curves are not forced to have knees. They are labelled separately from rankings. Time comparisons use the same strike; price comparisons use the same settlement date. Price marginal loss is measured per extra 1 percentage point of discount; the local 0.5-point estimate is half. These comparisons do not estimate future rollovers or assignment probability.
+Knees use the maximum positive distance above the normalized endpoint chord, at least three points, and strength greater than 0.03. Time comparisons use the same strike; price comparisons use the same settlement. Marginals describe the current product grid, not future rollover returns or assignment probabilities.
 
-The UI includes three recommendation cards, APR / period return / effective discount heatmaps, interactive quote details, time and price curves, marginal figures, sorting, preference filtering, CSV export and JSON import. No auto-subscription is implemented.
+Available UI: recommendation cards, APR / period return / effective discount heatmaps, quote details, time and price curves, sorting, preference filters and CSV export. No automatic subscriptions.
 
-## Import format
+## Local development
 
-```json
-{
-  "version": 1,
-  "spot": 84800,
-  "observedAt": "2026-10-04T00:00:00Z",
-  "products": [
-    {
-      "id": "quote-1",
-      "optionType": "PUT",
-      "investCoin": "USDT",
-      "exercisedCoin": "BTC",
-      "strikePrice": "83000",
-      "duration": 5,
-      "settleDate": 1791504000000,
-      "apr": "0.2865",
-      "canPurchase": true
-    }
-  ]
-}
+```sh
+npm test
+python3 -m http.server 4173
 ```
 
-Expired, unavailable or malformed quotes are excluded; when duplicate strike/date quotes exist, the highest APR is kept. Imported timestamps must not be more than five minutes in the future. Numeric CSV fields use decimal fractions for percentages.
+Open http://localhost:4173. Calculation tests contain synthetic fixtures only inside `tests/`, which is excluded from the deployed website.
